@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <style>
+      .window {
+        width: 300px;
+        height: 230px;
+        background-color: #f1f1f1;
+        position: absolute;
+        top: 100px;
+        left: 100px;
+        border: 1px solid #888;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        z-index: 10;
+        font-family: Arial, sans-serif;
+      }
+      .window-header {
+        padding: 10px;
+        cursor: move;
+        background-color: #2196f3;
+        color: white;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+        user-select: none;
+        font-weight: bold;
+      }
+      .window-content {
+        padding: 10px;
+        overflow-y: auto;
+      }
+      button {
+        margin: 5px 0;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      ul {
+        padding-left: 20px;
+        margin-top: 5px;
+        margin-bottom: 10px;
+      }
+      li {
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <!-- Button faceplate for multiple motor -->
+      <button onclick="openFaceplate(1)">Motor 1</button>
+      <button onclick="openFaceplate(2)">Motor 2</button>
+      <button onclick="openFaceplate(3)">Motor 3</button>
+      <button onclick="openFaceplate(4)">Motor 4</button>
+      <button onclick="openFaceplate(5)">Motor 5</button>
+    </div>
+    <div id="faceplate-container"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+
+      const openWindows = {};
+      let motorData = {};
+
+      function openFaceplate(motorId) {
+        if (openWindows[motorId]) {
+          bringToFront(openWindows[motorId]);
+          return;
+        }
+
+        const win = document.createElement("div");
+        win.classList.add("window");
+        win.id = "window_motor_" + motorId;
+        win.style.top = 100 + motorId * 30 + "px";
+        win.style.left = 100 + motorId * 30 + "px";
+
+        const header = document.createElement("div");
+        header.classList.add("window-header");
+
+        const titleSpan = document.createElement("span");
+        titleSpan.innerText = `Motor ${motorId} Faceplate`;
+
+        // close x in header
+        const closeBtn = document.createElement("button");
+        closeBtn.innerHTML = "&times;";
+        closeBtn.style.cssText = `
+          float: right;
+          background: transparent;
+          border: none;
+          color: white;
+          font-size: 18px;
+          font-weight: bold;
+          cursor: pointer;
+          user-select: none;
+          padding: 0 8px;
+          line-height: 1;
+        `;
+
+        // Events close
+        closeBtn.onclick = () => {
+          win.remove();
+          delete openWindows[motorId];
+        };
+
+        // Add title & close
+        header.appendChild(titleSpan);
+        header.appendChild(closeBtn);
+
+        const content = document.createElement("div");
+        content.classList.add("window-content");
+        content.innerHTML = `<p>Đang tải dữ liệu...</p>`;
+
+        // add header & content
+        win.appendChild(header);
+        win.appendChild(content);
+
+        document.getElementById("faceplate-container").appendChild(win);
+        openWindows[motorId] = win;
+
+        dragElement(win, header);
+        bringToFront(win);
+
+        // Update initial data
+        updateFaceplateContent(motorId);
+      }
+
+      function updateFaceplateContent(motorId) {
+        const motorKey = `MOTOR_${motorId}`;
+        const data = motorData[motorKey];
+        if (!data) return;
+
+        const win = openWindows[motorId];
+        if (!win) return;
+
+        const content = win.querySelector(".window-content");
+        if (!content) return;
+
+        content.innerHTML = `
+              <ul>
+                <li>Start: ${data.Start}</li>
+                <li>Stop: ${data.Stop}</li>
+                <li>Reset: ${data.Reset}</li>
+                <li>RunFeedBack: ${data.RunFeedBack}</li>
+                <li>Runtime: ${data.Runtime || "N/A"}</li>
+                <li>Speed: ${Number(data.Speed).toFixed(1)} rpm</li>
+              </ul>
+        `;
+      }
+
+      socket.on("connect", () => {
+        //console.log("Connected to socket.io server");
+      });
+
+      // handle socket
+      socket.on("socketPackages", (data) => {
+        // const speed = data.Chiller.Motors.MOTOR_1.Speed;
+        // document.getElementById("speed").innerText =
+        //   "Motor 1 Speed: " + speed + " RPM";
+        motorData = data.Chiller?.Motors || {};
+
+        // Update faceplate
+        for (const motorIdStr in openWindows) {
+          const motorId = Number(motorIdStr);
+          updateFaceplateContent(motorId);
+        }
+      });
+
+      function dragElement(elmnt, handle) {
+        let pos1 = 0,
+          pos2 = 0,
+          pos3 = 0,
+          pos4 = 0;
+
+        handle.onmousedown = dragMouseDown;
+
+        function dragMouseDown(e) {
+          e.preventDefault();
+          pos3 = e.clientX;
+          pos4 = e.clientY;
+          document.onmouseup = closeDragElement;
+          document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+          e.preventDefault();
+          pos1 = pos3 - e.clientX;
+          pos2 = pos4 - e.clientY;
+          pos3 = e.clientX;
+          pos4 = e.clientY;
+          elmnt.style.top = elmnt.offsetTop - pos2 + "px";
+          elmnt.style.left = elmnt.offsetLeft - pos1 + "px";
+        }
+
+        function closeDragElement() {
+          document.onmouseup = null;
+          document.onmousemove = null;
+        }
+      }
+
+      // Bring to front
+      function bringToFront(el) {
+        const maxZ = [...document.querySelectorAll(".window")].reduce(
+          (max, el) => {
+            const z = parseInt(window.getComputedStyle(el).zIndex) || 0;
+            return z > max ? z : max;
+          },
+          0
+        );
+        el.style.zIndex = maxZ + 1;
+      }
+    </script>
+  </body>
+</html>
